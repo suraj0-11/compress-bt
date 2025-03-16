@@ -157,10 +157,9 @@ class ProgressHelper:
         return False
 
 # Update progress callback
-async def progress_callback(current, total, message, start_time, action):
+async def progress_callback(current, total, message, start_time, action, user_id):
     try:
         message_id = message.id
-        user_id = message.from_user.id
         
         # Check if task was cancelled
         if Config.CANCEL_TASKS[user_id]:
@@ -214,7 +213,7 @@ async def progress_callback(current, total, message, start_time, action):
         raise  # Re-raise to handle cancellation
 
 # Update monitor_encoding_progress function
-async def monitor_encoding_progress(progress_file, message, input_size):
+async def monitor_encoding_progress(progress_file, message, input_size, user_id):
     start_time = time.time()
     last_progress = 0
     duration_ms = None
@@ -249,7 +248,8 @@ async def monitor_encoding_progress(progress_file, message, input_size):
                         duration_ms,
                         message,
                         start_time,
-                        "🔄 Encoding Video"
+                        "🔄 Encoding Video",
+                        user_id
                     )
                     await asyncio.sleep(2)  # Add delay after each update
             
@@ -421,7 +421,7 @@ async def process_file(message: Message, file_name: str = None):
         await message.download(
             file_name=download_path,
             progress=progress_callback,
-            progress_args=(status_msg, start_time, "📥 Downloading")
+            progress_args=(status_msg, start_time, "📥 Downloading", user_id)
         )
         
         # Add delay between status changes
@@ -448,7 +448,7 @@ async def process_file(message: Message, file_name: str = None):
             compress_video(download_path, output_path, status_msg, Config.CODEC)
         )
         progress_monitor = asyncio.create_task(
-            monitor_encoding_progress(progress_file, status_msg, original_size)
+            monitor_encoding_progress(progress_file, status_msg, original_size, user_id)
         )
         
         # Wait for encoding to complete
@@ -472,7 +472,7 @@ async def process_file(message: Message, file_name: str = None):
             await message.reply_document(
                 final_output_path,
                 progress=progress_callback,
-                progress_args=(status_msg, start_time, "📤 Uploading"),
+                progress_args=(status_msg, start_time, "📤 Uploading", user_id),
                 caption=(
                     f"📊 Compression Stats:\n\n"
                     f"Original size: {format_size(original_size)}\n"
