@@ -239,29 +239,36 @@ async def monitor_encoding_progress(progress_file, message, input_size, user_id)
             
             # Get duration on first run
             if duration_ms is None and 'duration' in progress_info:
-                duration_ms = float(progress_info['duration']) * 1000000
+                try:
+                    duration_ms = float(progress_info['duration']) * 1000000
+                except ValueError:
+                    continue
             
-            if 'out_time_ms' in progress_info and duration_ms:
-                time_in_ms = int(progress_info['out_time_ms'])
-                progress = min(time_in_ms / duration_ms, 1)
-                
-                # Update if progress changed by 5% or more
-                if abs(progress - last_progress) >= 0.05:
-                    last_progress = progress
-                    await progress_callback(
-                        time_in_ms,
-                        duration_ms,
-                        message,
-                        start_time,
-                        "🔄 Encoding Video",
-                        user_id
-                    )
-                    await asyncio.sleep(2)  # Add delay after each update
+            if 'out_time_ms' in progress_info and duration_ms and duration_ms > 0:
+                try:
+                    time_in_ms = float(progress_info['out_time_ms'])
+                    progress = min((time_in_ms / duration_ms) * 100, 100)
+                    
+                    # Update if progress changed by 2% or more
+                    if abs(progress - last_progress) >= 2:
+                        last_progress = progress
+                        await progress_callback(
+                            int(time_in_ms),
+                            int(duration_ms),
+                            message,
+                            start_time,
+                            "🔄 Encoding Video",
+                            user_id
+                        )
+                except (ValueError, ZeroDivisionError):
+                    continue
             
         except Exception as e:
             print(f"Monitor progress error: {str(e)}")
+            if "Task cancelled by user" in str(e):
+                raise
         
-        await asyncio.sleep(3)  # Check progress every 3 seconds
+        await asyncio.sleep(2)  # Check progress every 2 seconds
 
 # Compression function
 async def compress_video(input_file, output_file, message, codec, user_id):
