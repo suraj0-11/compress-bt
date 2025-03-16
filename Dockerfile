@@ -46,7 +46,8 @@ ENV PYTHONPATH="/usr/local/lib/python3.11/site-packages:/app:${PYTHONPATH}"
 # Test imports
 RUN python3 -c "import sys; print('Python version:', sys.version)"
 RUN python3 -c "import asyncio; print('Asyncio version:', asyncio.__version__ if hasattr(asyncio, '__version__') else 'built-in')"
-RUN python3 -c "import tgcrypto; print('TgCrypto version:', tgcrypto.__version__)"
+RUN python3 -c "import tgcrypto; print('TgCrypto imported successfully')"
+RUN python3 -c "import pyrogram; print('Pyrogram imported successfully')"
 
 # Command to run the bot
 CMD ["python3", "bot.py"] 

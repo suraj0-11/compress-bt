@@ -20,7 +20,7 @@ except ImportError as e:
 
 try:
     import tgcrypto
-    print("✅ TgCrypto imported successfully:", tgcrypto.__version__)
+    print("✅ TgCrypto imported successfully")
 except ImportError as e:
     print("❌ Failed to import tgcrypto:", str(e))
 
