@@ -194,86 +194,114 @@ async def compress_video(input_file, output_file, message, codec):
     progress_file = f"{Config.TEMP_FOLDER}/progress.txt"
     error_file = f"{Config.TEMP_FOLDER}/error.txt"
     
+    # Find ffmpeg path
+    ffmpeg_path = shutil.which('ffmpeg')
+    if not ffmpeg_path:
+        await message.reply_text("❌ FFmpeg not found in system PATH!")
+        return False, None
+    
     # Change output extension to mkv to support all codecs and subtitles
     output_file = output_file.rsplit('.', 1)[0] + '.mkv'
     
     # Base command with input file
     cmd = [
-        "ffmpeg", "-hide_banner",
+        ffmpeg_path, "-hide_banner",
         "-i", input_file,
         "-map", "0",  # Map all streams
         "-metadata", "title=CompressBotTG",  # Add metadata
     ]
     
-    # Add video codec specific settings
-    if codec == "libx264":
+    try:
+        # Print FFmpeg version and path for debugging
+        version_process = await asyncio.create_subprocess_exec(
+            ffmpeg_path, "-version",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        version_stdout, version_stderr = await version_process.communicate()
+        print(f"FFmpeg path: {ffmpeg_path}")
+        print(f"FFmpeg version: {version_stdout.decode()}")
+        
+        # Rest of your existing command building code...
+        if codec == "libx264":
+            cmd.extend([
+                "-c:v", codec,
+                "-preset", Config.PRESET,
+                "-crf", Config.CRF,
+                "-pix_fmt", "yuv420p",
+            ])
+        elif codec == "libx265":
+            cmd.extend([
+                "-c:v", codec,
+                "-preset", Config.PRESET,
+                "-crf", Config.CRF,
+                "-pix_fmt", "yuv420p",
+                "-x265-params", "no-info=1",
+                "-tag:v", "hvc1",
+            ])
+        elif codec == "av1":
+            cmd.extend([
+                "-c:v", "libsvtav1",
+                "-preset", Config.PRESET,
+                "-crf", Config.CRF,
+                "-pix_fmt", "yuv420p",
+            ])
+        
+        # Add quality settings if specified
+        if Config.QUALITY:
+            cmd.extend(["-s", Config.QUALITY])
+        
+        # Add audio settings
         cmd.extend([
-            "-c:v", codec,
-            "-preset", Config.PRESET,
-            "-crf", Config.CRF,
-            "-pix_fmt", "yuv420p",
+            "-c:a", "libopus",
+            "-ac", "1",
+            "-vbr", "2",
         ])
-    elif codec == "libx265":
+        
+        # Add subtitle settings
         cmd.extend([
-            "-c:v", codec,
-            "-preset", Config.PRESET,
-            "-crf", Config.CRF,
-            "-pix_fmt", "yuv420p",
-            "-x265-params", "no-info=1",
-            "-tag:v", "hvc1",  # For better compatibility
+            "-c:s", "copy",
         ])
-    elif codec == "av1":
+        
+        # Add output settings
         cmd.extend([
-            "-c:v", "libsvtav1",
-            "-preset", Config.PRESET,
-            "-crf", Config.CRF,
-            "-pix_fmt", "yuv420p",
+            "-max_muxing_queue_size", "1024",
+            "-progress", progress_file,
+            output_file,
+            "-y"
         ])
-    
-    # Add quality settings if specified
-    if Config.QUALITY:
-        cmd.extend(["-s", Config.QUALITY])
-    
-    # Add audio settings
-    cmd.extend([
-        "-c:a", "libopus",
-        "-ac", "1",  # Mono audio
-        "-vbr", "2",  # Variable bitrate mode
-    ])
-    
-    # Add subtitle settings
-    cmd.extend([
-        "-c:s", "copy",  # Copy subtitles
-    ])
-    
-    # Add output settings
-    cmd.extend([
-        "-max_muxing_queue_size", "1024",
-        "-progress", progress_file,
-        output_file,
-        "-y"
-    ])
-    
-    # Create process with pipe for stderr
-    process = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-    
-    # Wait for the process to complete and get output
-    stdout, stderr = await process.communicate()
-    
-    # Check if output file exists and has size
-    if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
-        return True, output_file
-    else:
-        # Log the error
-        error_msg = stderr.decode() if stderr else "Unknown error"
+        
+        # Print full command for debugging
+        print(f"Full FFmpeg command: {' '.join(cmd)}")
+        
+        # Create process with pipe for stderr
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        # Wait for the process to complete and get output
+        stdout, stderr = await process.communicate()
+        
+        # Check if output file exists and has size
+        if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
+            return True, output_file
+        else:
+            # Log the error
+            error_msg = stderr.decode() if stderr else "Unknown error"
+            await message.reply_text(
+                f"❌ Encoding failed!\n\n"
+                f"Command: {' '.join(cmd)}\n\n"
+                f"Error: {error_msg}\n\n"
+                f"FFmpeg path: {ffmpeg_path}"
+            )
+            return False, None
+            
+    except Exception as e:
         await message.reply_text(
-            f"❌ Encoding failed!\n\n"
-            f"Command: {' '.join(cmd)}\n\n"
-            f"Error: {error_msg}"
+            f"❌ Error during compression:\n{str(e)}\n\n"
+            f"FFmpeg path: {ffmpeg_path}"
         )
         return False, None
 
