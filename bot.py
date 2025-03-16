@@ -22,7 +22,7 @@ class Config:
     CRF = "28"  # Default CRF value for x264
     AUDIO_CODEC = "libopus"  # Default audio codec
     CODEC = "libx264"  # Default video codec
-    MAX_QUEUE_SIZE = 5  # Maximum files in queue per user
+    MAX_QUEUE_SIZE = 10  # Maximum files in queue per user
     QUALITY = "846x480"  # Default quality
     
     # Valid presets and CRF values for different codecs
