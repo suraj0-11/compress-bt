@@ -17,7 +17,7 @@ class Config:
     API_ID = 3281305
     API_HASH = "a9e62ec83fe3c22379e3e19195c8b3f6"
     BOT_TOKEN = "6519805517:AAFiX-NMkszvdThiwIplnFLHgDB78J_LbQw"
-    AUTH_USERS = [6147004598, 6052965703, 6953453057]
+    AUTH_USERS = [6147004598, 6052965703, 6953453057, 1427670935, 5426110168]
     TEMP_FOLDER = "downloads"
     PRESET = "veryfast"  # Default preset
     CRF = "28"  # Default CRF value for x264
