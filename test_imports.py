@@ -7,6 +7,12 @@ except Exception as e:
     print("❌ Failed to get Python version:", str(e))
 
 try:
+    import asyncio
+    print("✅ Asyncio imported successfully (built-in)")
+except ImportError as e:
+    print("❌ Failed to import asyncio:", str(e))
+
+try:
     import pyrogram
     print("✅ Pyrogram imported successfully:", pyrogram.__version__)
 except ImportError as e:
