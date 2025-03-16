@@ -19,11 +19,21 @@ RUN ffmpeg -version
 # Set working directory
 WORKDIR /app
 
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Upgrade pip
+RUN pip install --no-cache-dir --upgrade pip
 
-# Copy the rest of the application
+# Install each package individually with explicit versions
+RUN pip install --no-cache-dir pyrogram==2.0.106 && \
+    pip install --no-cache-dir tgcrypto==1.2.5 && \
+    pip install --no-cache-dir python-dotenv==1.0.0 && \
+    pip install --no-cache-dir aiofiles==23.2.1 && \
+    pip install --no-cache-dir hachoir==3.2.0 && \
+    pip install --no-cache-dir asyncio==3.4.3
+
+# Verify installations
+RUN pip list
+
+# Copy the application
 COPY . .
 
 # Create downloads directory
@@ -31,6 +41,10 @@ RUN mkdir -p downloads
 
 # Set environment variable for FFmpeg path
 ENV PATH="/usr/bin:${PATH}"
+ENV PYTHONPATH="${PYTHONPATH}:/app"
+
+# Run test script
+RUN python3 test_imports.py
 
 # Command to run the application
-CMD ["python3", "bot.py"] 
+CMD ["sh", "-c", "python3 test_imports.py && python3 bot.py"] 
