@@ -1,6 +1,12 @@
 print("Starting import tests...")
 
 try:
+    import sys
+    print("Python version:", sys.version)
+except Exception as e:
+    print("❌ Failed to get Python version:", str(e))
+
+try:
     import pyrogram
     print("✅ Pyrogram imported successfully:", pyrogram.__version__)
 except ImportError as e:
@@ -31,9 +37,12 @@ except ImportError as e:
     print("❌ Failed to import hachoir:", str(e))
 
 print("\nPython path:")
-import sys
 print(sys.path)
 
 print("\nInstalled packages:")
-import pkg_resources
-print([p.key for p in pkg_resources.working_set]) 
+try:
+    from pip._internal.operations.freeze import freeze
+    packages = list(freeze())
+    print("\n".join(packages))
+except Exception as e:
+    print("❌ Failed to list packages:", str(e)) 
