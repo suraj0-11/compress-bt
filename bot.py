@@ -220,6 +220,11 @@ async def monitor_encoding_progress(progress_file, message, input_size, user_id)
     
     while True:
         try:
+            # Check for cancellation
+            if Config.CANCEL_TASKS[user_id]:
+                Config.CANCEL_TASKS[user_id] = False
+                raise Exception("Task cancelled by user")
+            
             if not os.path.exists(progress_file):
                 break
                 
@@ -259,7 +264,7 @@ async def monitor_encoding_progress(progress_file, message, input_size, user_id)
         await asyncio.sleep(3)  # Check progress every 3 seconds
 
 # Compression function
-async def compress_video(input_file, output_file, message, codec):
+async def compress_video(input_file, output_file, message, codec, user_id):
     progress_file = f"{Config.TEMP_FOLDER}/progress.txt"
     error_file = f"{Config.TEMP_FOLDER}/error.txt"
     
@@ -351,13 +356,13 @@ async def compress_video(input_file, output_file, message, codec):
         )
         
         # Store the process in the queue system
-        queue_system.current_process[message.from_user.id] = process
+        queue_system.current_process[user_id] = process
         
         # Wait for the process to complete and get output
         stdout, stderr = await process.communicate()
         
         # Clear the process from queue system
-        queue_system.current_process.pop(message.from_user.id, None)
+        queue_system.current_process.pop(user_id, None)
         
         # Check if output file exists and has size
         if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
@@ -445,15 +450,22 @@ async def process_file(message: Message, file_name: str = None):
         
         # Create tasks for encoding and progress monitoring
         encoding_process = asyncio.create_task(
-            compress_video(download_path, output_path, status_msg, Config.CODEC)
+            compress_video(download_path, output_path, status_msg, Config.CODEC, user_id)
         )
         progress_monitor = asyncio.create_task(
             monitor_encoding_progress(progress_file, status_msg, original_size, user_id)
         )
         
         # Wait for encoding to complete
-        success, final_output_path = await encoding_process
-        await progress_monitor
+        try:
+            success, final_output_path = await encoding_process
+            await progress_monitor
+        except Exception as e:
+            print(f"Error during encoding/monitoring: {str(e)}")
+            if "Task cancelled by user" in str(e):
+                await status_msg.edit_text("❌ Task cancelled by user")
+                return
+            raise
         
         if success and os.path.exists(final_output_path) and os.path.getsize(final_output_path) > 0:
             compressed_size = os.path.getsize(final_output_path)
