@@ -25,7 +25,7 @@ class Config:
     CODEC = "libx264"  # Default video codec
     MAX_QUEUE_SIZE = 10  # Maximum files in queue per user
     QUALITY = "846x480"  # Default quality
-    CANCEL_TASKS = {}  # Store cancel event for each user's task
+    CANCEL_TASKS = defaultdict(bool)  # Store cancel state for each user's task
     
     # Valid presets and CRF values for different codecs
     VALID_PRESETS = {
@@ -141,10 +141,33 @@ def time_formatter(seconds: float) -> str:
            ((str(minutes) + "m, ") if minutes else "") + \
            ((str(seconds) + "s") if seconds else "")
 
-# Progress callback for download and upload
+# Add after Config class
+class ProgressHelper:
+    last_update_time = {}  # Store last update time for each message
+    MIN_UPDATE_INTERVAL = 2  # Minimum seconds between updates
+
+    @classmethod
+    def can_update(cls, message_id: int) -> bool:
+        current_time = time.time()
+        last_time = cls.last_update_time.get(message_id, 0)
+        
+        if current_time - last_time >= cls.MIN_UPDATE_INTERVAL:
+            cls.last_update_time[message_id] = current_time
+            return True
+        return False
+
+# Update progress callback
 async def progress_callback(current, total, message, start_time, action):
     try:
-        if not ProgressHelper.can_update(message.id):
+        message_id = message.id
+        user_id = message.from_user.id
+        
+        # Check if task was cancelled
+        if Config.CANCEL_TASKS[user_id]:
+            Config.CANCEL_TASKS[user_id] = False  # Reset cancel state
+            raise Exception("Task cancelled by user")
+        
+        if not ProgressHelper.can_update(message_id):
             return
         
         now = time.time()
@@ -174,27 +197,33 @@ async def progress_callback(current, total, message, start_time, action):
                f"⚡ **Speed**: {speed}\n" \
                f"⏰ **ETA**: {eta}"
         
+        # Add cancel button to progress updates
+        cancel_button = InlineKeyboardMarkup([
+            [InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_{action.split()[0].lower()}")]
+        ])
+        
         try:
-            await message.edit_text(text)
+            await message.edit_text(text, reply_markup=cancel_button)
+            await asyncio.sleep(2)
         except FloodWait as e:
-            print(f"FloodWait: Sleeping for {e.value} seconds")
             await asyncio.sleep(e.value)
-            await message.edit_text(text)
         except Exception as e:
             print(f"Progress update error: {str(e)}")
     except Exception as e:
         print(f"Progress callback error: {str(e)}")
+        raise  # Re-raise to handle cancellation
 
-# Encoding progress monitor
+# Update monitor_encoding_progress function
 async def monitor_encoding_progress(progress_file, message, input_size):
     start_time = time.time()
     last_progress = 0
+    duration_ms = None
     
     while True:
-        if not os.path.exists(progress_file):
-            break
-            
         try:
+            if not os.path.exists(progress_file):
+                break
+                
             with open(progress_file, 'r') as file:
                 lines = file.readlines()
                 
@@ -203,27 +232,31 @@ async def monitor_encoding_progress(progress_file, message, input_size):
                 if '=' in line:
                     key, value = line.strip().split('=', 1)
                     progress_info[key] = value
-                    
-            if 'out_time_ms' in progress_info:
+            
+            # Get duration on first run
+            if duration_ms is None and 'duration' in progress_info:
+                duration_ms = float(progress_info['duration']) * 1000000
+            
+            if 'out_time_ms' in progress_info and duration_ms:
                 time_in_ms = int(progress_info['out_time_ms'])
-                if 'duration' in progress_info:
-                    duration_ms = float(progress_info['duration']) * 1000000
-                    progress = min(time_in_ms / duration_ms, 1)
-                    
-                    # Only update if progress has changed significantly (more than 2%)
-                    if abs(progress - last_progress) >= 0.02:
-                        last_progress = progress
-                        await progress_callback(
-                            time_in_ms,
-                            duration_ms,
-                            message,
-                            start_time,
-                            "🔄 Encoding Video"
-                        )
+                progress = min(time_in_ms / duration_ms, 1)
+                
+                # Update if progress changed by 5% or more
+                if abs(progress - last_progress) >= 0.05:
+                    last_progress = progress
+                    await progress_callback(
+                        time_in_ms,
+                        duration_ms,
+                        message,
+                        start_time,
+                        "🔄 Encoding Video"
+                    )
+                    await asyncio.sleep(2)  # Add delay after each update
+            
         except Exception as e:
             print(f"Monitor progress error: {str(e)}")
-            
-        await asyncio.sleep(5)  # Increased sleep time between checks
+        
+        await asyncio.sleep(3)  # Check progress every 3 seconds
 
 # Compression function
 async def compress_video(input_file, output_file, message, codec):
@@ -347,13 +380,17 @@ async def compress_video(input_file, output_file, message, codec):
         )
         return False, None
 
-# Process file function
+# Update process_file function's status updates
 async def process_file(message: Message, file_name: str = None):
     download_path = None
     output_path = None
     progress_file = None
+    user_id = message.from_user.id
     
     try:
+        # Reset cancel state at start
+        Config.CANCEL_TASKS[user_id] = False
+        
         # Get file info
         file_name = file_name or (message.document.file_name if message.document else "video.mp4")
         download_path = os.path.join(Config.TEMP_FOLDER, f"input_{file_name}")
@@ -365,7 +402,7 @@ async def process_file(message: Message, file_name: str = None):
             [InlineKeyboardButton("❌ Cancel", callback_data="cancel_task")]
         ])
         
-        # Download file
+        # Initial status message
         status_msg = await message.reply_text(
             f"⚙️ Processing File\n\n"
             f"🎥 File: {file_name}\n"
@@ -376,15 +413,19 @@ async def process_file(message: Message, file_name: str = None):
             f"🔊 Audio: {Config.AUDIO_CODEC}",
             reply_markup=cancel_button
         )
+        await asyncio.sleep(2)  # Add delay after initial message
         
         start_time = time.time()
         
-        # Download with progress
+        # Download with progress and handle cancellation
         await message.download(
             file_name=download_path,
             progress=progress_callback,
             progress_args=(status_msg, start_time, "📥 Downloading")
         )
+        
+        # Add delay between status changes
+        await asyncio.sleep(2)
         
         # Verify downloaded file
         if not os.path.exists(download_path) or os.path.getsize(download_path) == 0:
@@ -396,9 +437,8 @@ async def process_file(message: Message, file_name: str = None):
         # Update error handling for status messages
         try:
             await status_msg.edit_text("🎬 Starting encoding process...")
-            await asyncio.sleep(2)  # Add delay between status updates
+            await asyncio.sleep(2)
         except FloodWait as e:
-            print(f"FloodWait: Sleeping for {e.value} seconds")
             await asyncio.sleep(e.value)
         except Exception as e:
             print(f"Status update error: {str(e)}")
@@ -417,6 +457,9 @@ async def process_file(message: Message, file_name: str = None):
         
         if success and os.path.exists(final_output_path) and os.path.getsize(final_output_path) > 0:
             compressed_size = os.path.getsize(final_output_path)
+            
+            # Reset cancel state before upload
+            Config.CANCEL_TASKS[user_id] = False
             
             # Verify compressed file size
             if compressed_size == 0:
@@ -453,7 +496,6 @@ async def process_file(message: Message, file_name: str = None):
             try:
                 await status_msg.edit_text(f"❌ {error_msg}")
             except FloodWait as e:
-                print(f"FloodWait: Sleeping for {e.value} seconds")
                 await asyncio.sleep(e.value)
                 await status_msg.edit_text(f"❌ {error_msg}")
             except Exception as e:
@@ -648,13 +690,19 @@ async def handle_callback(client, callback_query):
         await callback_query.answer("You are not authorized to use this bot!", show_alert=True)
         return
     
-    if callback_query.data == "cancel_task":
-        result = await queue_system.cancel_current_task(callback_query.from_user.id)
+    user_id = callback_query.from_user.id
+    data = callback_query.data
+    
+    if data == "cancel_task":
+        result = await queue_system.cancel_current_task(user_id)
         await callback_query.message.edit_text(
             f"{callback_query.message.text}\n\n{result}",
             reply_markup=None
         )
         await callback_query.answer("Task cancelled!")
+    elif data in ["cancel_downloading", "cancel_uploading"]:
+        Config.CANCEL_TASKS[user_id] = True
+        await callback_query.answer(f"Cancelling {data.split('_')[1]}...")
 
 # Start the bot
 app.run() 
