@@ -141,10 +141,10 @@ def time_formatter(seconds: float) -> str:
            ((str(minutes) + "m, ") if minutes else "") + \
            ((str(seconds) + "s") if seconds else "")
 
-# Add after Config class
+# Update ProgressHelper class
 class ProgressHelper:
     last_update_time = {}  # Store last update time for each message
-    MIN_UPDATE_INTERVAL = 2  # Minimum seconds between updates
+    MIN_UPDATE_INTERVAL = 3  # Increase minimum interval between updates to reduce overhead
 
     @classmethod
     def can_update(cls, message_id: int) -> bool:
@@ -203,7 +203,7 @@ async def progress_callback(current, total, message, start_time, action, user_id
         
         try:
             await message.edit_text(text, reply_markup=cancel_button)
-            await asyncio.sleep(2)
+            # Remove sleep here as it's not needed with the update interval
         except FloodWait as e:
             await asyncio.sleep(e.value)
         except Exception as e:
@@ -385,7 +385,7 @@ async def compress_video(input_file, output_file, message, codec, user_id):
         )
         return False, None
 
-# Update process_file function's status updates
+# Update process_file function to optimize delays
 async def process_file(message: Message, file_name: str = None):
     download_path = None
     output_path = None
@@ -418,7 +418,7 @@ async def process_file(message: Message, file_name: str = None):
             f"🔊 Audio: {Config.AUDIO_CODEC}",
             reply_markup=cancel_button
         )
-        await asyncio.sleep(2)  # Add delay after initial message
+        await asyncio.sleep(1)  # Reduce initial delay
         
         start_time = time.time()
         
@@ -429,8 +429,7 @@ async def process_file(message: Message, file_name: str = None):
             progress_args=(status_msg, start_time, "📥 Downloading", user_id)
         )
         
-        # Add delay between status changes
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)  # Reduce delay between status changes
         
         # Verify downloaded file
         if not os.path.exists(download_path) or os.path.getsize(download_path) == 0:
